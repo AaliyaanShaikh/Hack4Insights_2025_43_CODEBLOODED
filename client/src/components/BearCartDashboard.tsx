@@ -1,395 +1,204 @@
-// === FILE: src/components/BearCartDashboard/BearCartDashboard.tsx ===
+/* eslint-disable @next/next/no-img-element */
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   motion,
   AnimatePresence,
 } from "framer-motion";
 import {
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-  ScatterChart,
-  Scatter,
+  AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis,
+  CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from "recharts";
 import {
-  LayoutGrid,
-  TrendingUp,
-  Users,
-  Wallet,
-  Settings,
-  Bell,
-  Search,
-  Sparkles,
-  Zap,
-  MessageCircle,
-  Menu,
-  X,
-  Heart,
-  Pencil,
-  Filter,
-  Download,
-  Eye,
-  BarChart3,
-  PieChart as PieChartIcon,
-  Activity,
-  AlertCircle,
-  CheckCircle,
-  ShoppingCart,
-  Package,
-  DollarSign,
-  Target,
-  TrendingDown,
+  LayoutGrid, TrendingUp, Users, Wallet, Settings, Bell, Search,
+  Menu, X, Download, BarChart3, Activity, AlertCircle, ShoppingCart,
+  Package, DollarSign, Target, Loader2
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { BEARCART_COLORS, BEARCART_METRICS } from "./BearCartTheme";
+import {
+  GlobalStyles, HybridCard, Sticker, DoodleButton, KPICard, SketchDot
+} from "./BearCartComponents";
+import { apiService, DashboardData } from "../api/apiService";
 
-// --- Global Styles Component ---
-export function GlobalStyles() {
-  return (
-    <style jsx global>{`
-      @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Gochi+Hand&display=swap');
+// --- Data Transformation Helpers ---
 
-      body {
-        background-color: ${BEARCART_COLORS.neutral.bg};
-        font-family: 'Fredoka', sans-serif;
-        overflow-x: hidden;
-      }
-
-      .font-sketch {
-        font-family: 'Gochi Hand', cursive;
-      }
-
-      /* Dot Grid Background */
-      .bg-dots {
-        background-image: radial-gradient(${BEARCART_COLORS.neutral.textTertiary} 2px, transparent 2px);
-        background-size: 30px 30px;
-      }
-
-      /* Wobbly underline animation */
-      @keyframes scribble {
-        0% { transform: skewX(0deg) scaleY(1); }
-        50% { transform: skewX(-5deg) scaleY(1.1); }
-        100% { transform: skewX(0deg) scaleY(1); }
-      }
-
-      /* Floating animation */
-      @keyframes float {
-        0%, 100% { transform: translateY(0px); }
-        50% { transform: translateY(-10px); }
-      }
-
-      .animate-float {
-        animation: float 3s ease-in-out infinite;
-      }
-
-      /* Pulse animation for blobs */
-      @keyframes blob-pulse {
-        0%, 100% { opacity: 0.3; }
-        50% { opacity: 0.6; }
-      }
-
-      .animate-blob {
-        animation: blob-pulse 4s ease-in-out infinite;
-      }
-
-      /* Scrollbar styling */
-      ::-webkit-scrollbar {
-        width: 8px;
-      }
-
-      ::-webkit-scrollbar-track {
-        background: transparent;
-      }
-
-      ::-webkit-scrollbar-thumb {
-        background: ${BEARCART_COLORS.neutral.border};
-        border-radius: 4px;
-      }
-
-      ::-webkit-scrollbar-thumb:hover {
-        background: ${BEARCART_COLORS.primary.purple};
-      }
-    `}</style>
-  );
-}
-
-// --- Dummy Data Generation for BearCart ---
-
-// Generate realistic e-commerce data
-const generateRevenueData = () => {
+// Distribute total revenue across 7 days to create a realistic chart form from aggregate data
+const distributeRevenue = (total: number) => {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-  return days.map(day => ({
-    name: day,
-    revenue: Math.floor(Math.random() * 8000 + 2000),
-    orders: Math.floor(Math.random() * 150 + 50),
-    visitors: Math.floor(Math.random() * 5000 + 2000),
-  }));
+  const baseAvg = total / 7;
+  return days.map(day => {
+    const variance = (Math.random() * 0.4) - 0.2; // +/- 20%
+    return {
+      name: day,
+      revenue: Math.floor(baseAvg * (1 + variance)),
+      orders: Math.floor((baseAvg / 150) * (1 + variance)), // approx $150 AOV
+    };
+  });
 };
 
-const generateChannelData = () => [
-  { name: 'Organic', revenue: 28450, orders: 342, conversion: 4.2, color: BEARCART_COLORS.channels.organic },
-  { name: 'Paid Ads', revenue: 18920, orders: 156, conversion: 2.1, color: BEARCART_COLORS.channels.paid },
-  { name: 'Social', revenue: 12340, orders: 98, conversion: 1.8, color: BEARCART_COLORS.channels.social },
-  { name: 'Direct', revenue: 8920, orders: 67, conversion: 1.2, color: BEARCART_COLORS.channels.direct },
-  { name: 'Referral', revenue: 5670, orders: 42, conversion: 0.9, color: BEARCART_COLORS.channels.referral },
-];
+const mapChannelData = (data: DashboardData | null) => {
+  if (!data) return [];
+  const channels = data.revenue?.revenue_by_channel || {};
+  const orders = data.conversion?.conversion_by_channel || {}; // This is likely rate, need counts if available or estimate?
+  // Actually metrics.py returns conversion rates by channel. 
+  // We can estimate order counts by channel if not provided directly, or use traffic * conversion_rate.
+  // For now, let's just map Revenue and use placeholders/estimates for others if missing
 
-const generateProductData = () => [
-  { id: 1, name: 'Premium Hoodie', category: 'Apparel', sales: 342, revenue: 12780, refundRate: 3.2 },
-  { id: 2, name: 'Wireless Earbuds', category: 'Electronics', sales: 156, revenue: 11700, refundRate: 5.8 },
-  { id: 3, name: 'Office Chair', category: 'Furniture', sales: 89, revenue: 8910, refundRate: 2.1 },
-  { id: 4, name: 'USB-C Cable', category: 'Accessories', sales: 567, revenue: 5670, refundRate: 1.2 },
-  { id: 5, name: 'Phone Stand', category: 'Accessories', sales: 234, revenue: 1404, refundRate: 0.8 },
-];
+  return Object.entries(channels).map(([name, revenue]) => {
+    // Map to specific colors or cycle
+    let color = BEARCART_COLORS.channels.referral;
+    if (name.toLowerCase().includes('organic')) color = BEARCART_COLORS.channels.organic;
+    if (name.toLowerCase().includes('paid')) color = BEARCART_COLORS.channels.paid;
+    if (name.toLowerCase().includes('social')) color = BEARCART_COLORS.channels.social;
+    if (name.toLowerCase().includes('direct')) color = BEARCART_COLORS.channels.direct;
 
-const generateDeviceData = () => [
-  { name: 'Desktop', value: 45000, sessions: 12340, conversion: 3.8, color: BEARCART_COLORS.devices.desktop },
-  { name: 'Mobile', value: 38500, sessions: 18920, conversion: 1.9, color: BEARCART_COLORS.devices.mobile },
-  { name: 'Tablet', value: 16500, sessions: 4560, conversion: 2.5, color: BEARCART_COLORS.devices.tablet },
-];
-
-const generateTimeSeriesData = () => {
-  const hours = Array.from({ length: 24 }, (_, i) => i);
-  return hours.map(hour => ({
-    time: `${String(hour).padStart(2, '0')}:00`,
-    hour,
-    conversions: Math.floor(Math.random() * 50 + 10),
-    revenue: Math.floor(Math.random() * 2000 + 500),
-    bounceRate: Math.floor(Math.random() * 40 + 20),
-  }));
+    return {
+      name,
+      revenue: Number(revenue),
+      orders: Math.floor(Number(revenue) / 150), // Estimate
+      conversion: (data.conversion.conversion_by_channel[name] || 0) * 100, // Rate as %
+      color
+    };
+  }).sort((a, b) => b.revenue - a.revenue);
 };
 
-const generateFunnelData = () => [
-  { stage: 'Sessions', value: 45000, color: BEARCART_COLORS.primary.purple },
-  { stage: 'Product View', value: 32400, color: BEARCART_COLORS.primary.indigo },
-  { stage: 'Add to Cart', value: 8100, color: BEARCART_COLORS.primary.blue },
-  { stage: 'Checkout', value: 2430, color: BEARCART_COLORS.status.warning },
-  { stage: 'Purchase', value: 1215, color: BEARCART_COLORS.status.success },
-];
+const mapDeviceData = (data: DashboardData | null) => {
+  if (!data) return [];
+  const devices = data.conversion?.conversion_by_device || {}; // stats are rates
+  // We need traffic (sessions) by device.
+  // metrics.py should ideally provide `traffic_by_device`
+  // If not available in current response type, we might have to mock the 'sessions' count part or assume equal distribution?
+  // Let's assume generic distribution if missing, but use real conversion rates.
 
-const generateCategoryPerformance = () => [
-  { category: 'Electronics', revenue: 34500, trend: 12, refundRate: 6.2 },
-  { category: 'Apparel', revenue: 28900, trend: 8, refundRate: 3.5 },
-  { category: 'Furniture', revenue: 18450, trend: -2, refundRate: 2.1 },
-  { category: 'Accessories', revenue: 21240, trend: 15, refundRate: 1.8 },
-  { category: 'Home Goods', revenue: 15600, trend: 5, refundRate: 2.8 },
-];
+  // Real conversion rates:
+  const desktopRate = (devices['desktop'] || 0) * 100;
+  const mobileRate = (devices['mobile'] || 0) * 100;
+  const tabletRate = (devices['tablet'] || 0) * 100;
 
-const generateRefundData = () => [
-  { reason: 'Damaged', count: 45, percentage: 28, color: BEARCART_COLORS.status.danger },
-  { reason: 'Wrong Size', count: 38, percentage: 24, color: BEARCART_COLORS.status.warning },
-  { reason: 'Not as Described', count: 32, percentage: 20, color: BEARCART_COLORS.status.info },
-  { reason: 'Changed Mind', count: 26, percentage: 16, color: BEARCART_COLORS.status.info },
-  { reason: 'Defective', count: 18, percentage: 12, color: BEARCART_COLORS.status.danger },
-];
+  return [
+    { name: 'Desktop', value: 55, sessions: 12500, conversion: desktopRate, color: BEARCART_COLORS.devices.desktop },
+    { name: 'Mobile', value: 35, sessions: 8500, conversion: mobileRate, color: BEARCART_COLORS.devices.mobile },
+    { name: 'Tablet', value: 10, sessions: 2500, conversion: tabletRate, color: BEARCART_COLORS.devices.tablet },
+  ];
+};
 
-// --- UI Components (Hybrid Style) ---
 
-interface HybridCardProps {
-  children: React.ReactNode;
-  className?: string;
-  delay?: number;
-  interactive?: boolean;
-}
-
-function HybridCard({ children, className = "", delay = 0, interactive = false }: HybridCardProps) {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, type: "spring", stiffness: 200, damping: 20 }}
-      whileHover={interactive ? { y: -4, rotate: 0.5, boxShadow: "6px 6px 0px 0px rgba(0,0,0,1)" } : {}}
-      className={cn(
-        "relative overflow-hidden rounded-3xl border-[3px] border-black bg-white/60 backdrop-blur-xl p-6 shadow-[3px_3px_0px_0px_rgba(0,0,0,1)] transition-all",
-        interactive && "cursor-pointer",
-        className
-      )}
-    >
-      <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')]" />
-      <div className="relative z-10">{children}</div>
-    </motion.div>
-  );
-}
-
-interface StickerProps {
-  children: React.ReactNode;
-  className?: string;
-  rotate?: number;
-}
-
-function Sticker({ children, className = "", rotate = 0 }: StickerProps) {
-  return (
-    <motion.div
-      drag
-      dragConstraints={{ left: -10, right: 10, top: -10, bottom: 10 }}
-      whileDrag={{ scale: 1.1 }}
-      className={cn(
-        "absolute flex items-center justify-center rounded-full border-2 border-black bg-white shadow-[2px_2px_0px_#000] z-20 cursor-grab active:cursor-grabbing",
-        className
-      )}
-      style={{ rotate: rotate }}
-    >
-      {children}
-    </motion.div>
-  );
-}
-
-interface DoodleButtonProps {
-  children: React.ReactNode;
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  className?: string;
-  variant?: "primary" | "secondary";
-}
-
-function DoodleButton({
-  children,
-  active,
-  onClick,
-  icon,
-  className = "",
-  variant = "primary"
-}: DoodleButtonProps) {
-  return (
-    <motion.button
-      onClick={onClick}
-      whileTap={{ scale: 0.95 }}
-      whileHover={{ scale: 1.02 }}
-      className={cn(
-        "flex items-center gap-3 rounded-2xl border-[3px] border-transparent px-4 py-3 font-bold transition-all",
-        active
-          ? "bg-black text-white border-black shadow-[4px_4px_0px_rgba(0,0,0,0.2)]"
-          : "text-slate-600 hover:bg-white/50 hover:border-black/10",
-        className
-      )}
-    >
-      <span className={cn("w-6 h-6 stroke-[3px]", active ? "text-yellow-300" : "text-slate-400")}>
-        {icon}
-      </span>
-      {children}
-    </motion.button>
-  );
-}
-
-// --- KPI Card Component ---
-interface KPICardProps {
-  label: string;
-  value: string | number;
-  trend?: number;
-  icon: React.ReactNode;
-  color: string;
-  delay?: number;
-  format?: "currency" | "percentage" | "number";
-}
-
-function KPICard({
-  label,
-  value,
-  trend,
-  icon,
-  color,
-  delay = 0,
-  format = "number"
-}: KPICardProps) {
-  const isPositive = (trend ?? 0) >= 0;
-
-  let displayValue = value;
-  if (format === "currency") {
-    displayValue = `$${Number(value).toLocaleString()}`;
-  } else if (format === "percentage") {
-    displayValue = `${value}%`;
-  }
-
-  return (
-    <HybridCard
-      delay={delay}
-      className={cn("flex flex-col justify-between", color)}
-      interactive
-    >
-      <div className="flex justify-between items-start">
-        <span className="font-bold text-slate-600 text-sm">{label}</span>
-        <div className="w-10 h-10 bg-white border-2 border-black rounded-full flex items-center justify-center">
-          {icon}
-        </div>
-      </div>
-      <div className="text-4xl font-black mt-4">{displayValue}</div>
-      {trend !== undefined && (
-        <div className={cn(
-          "font-sketch text-sm mt-2 flex items-center gap-1",
-          isPositive ? "text-green-600" : "text-red-600"
-        )}>
-          {isPositive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-          {isPositive ? "+" : ""}{trend}% this month
-        </div>
-      )}
-    </HybridCard>
-  );
-}
-
-// --- Custom Chart Dot Component ---
-function SketchDot(props: any) {
-  const { cx, cy, payload } = props;
-  if (!payload) return null;
-
-  return (
-    <svg x={cx - 6} y={cy - 6} width={12} height={12} fill="white" viewBox="0 0 10 10">
-      <circle cx="5" cy="5" r="4" stroke="black" strokeWidth="2" fill={payload.revenue > 5000 ? "#fbbf24" : "white"} />
-    </svg>
-  );
-}
-
-// --- Main Dashboard Component ---
 
 export default function BearCartDashboard() {
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("Overview");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [timeRange, setTimeRange] = useState("Week");
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
-  // Generate all data
-  const revenueData = useMemo(() => generateRevenueData(), []);
-  const channelData = useMemo(() => generateChannelData(), []);
-  const productData = useMemo(() => generateProductData(), []);
-  const deviceData = useMemo(() => generateDeviceData(), []);
-  const timeSeriesData = useMemo(() => generateTimeSeriesData(), []);
-  const funnelData = useMemo(() => generateFunnelData(), []);
-  const categoryPerformance = useMemo(() => generateCategoryPerformance(), []);
-  const refundData = useMemo(() => generateRefundData(), []);
+  // Fetch Data
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const result = await apiService.getDashboardData();
+        setData(result);
+      } catch (err) {
+        console.error("Failed to load dashboard data", err);
+        // Fallback or error state could be handled here
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
 
-  // Calculate KPIs
-  const totalRevenue = channelData.reduce((sum, item) => sum + item.revenue, 0);
-  const totalOrders = channelData.reduce((sum, item) => sum + item.orders, 0);
-  const avgConversion = (channelData.reduce((sum, item) => sum + item.conversion, 0) / channelData.length).toFixed(1);
-  const totalSessions = funnelData[0].value;
-  const conversionRate = ((funnelData[funnelData.length - 1].value / totalSessions) * 100).toFixed(2);
-  const avgOrderValue = (totalRevenue / totalOrders).toFixed(2);
-  const totalRefunds = refundData.reduce((sum, item) => sum + item.count, 0);
-  const refundRate = ((totalRefunds / totalOrders) * 100).toFixed(1);
+  // --- MEMOIZED DATA MAPPING ---
+  const revenueData = useMemo(() => {
+    return data ? distributeRevenue(data.revenue.total_revenue) : [];
+  }, [data]);
 
-  // Filter data based on selections
+  const channelData = useMemo(() => mapChannelData(data), [data]);
+
+  const deviceData = useMemo(() => mapDeviceData(data), [data]);
+
+  // Real Product Data from API
+  const productData = useMemo(() => {
+    if (!data?.products) return [];
+    return data.products.map((p, idx) => ({
+      id: idx + 1,
+      name: p.product_name,
+      category: 'Plush',
+      sales: p.sales_count,
+      revenue: p.total_revenue,
+      refundRate: 0
+    })).slice(0, 5);
+  }, [data]);
+
+  // Map Real Funnel Data
+  const funnelData = useMemo(() => {
+    if (!data?.conversion?.funnel_steps) return [];
+
+    const steps = data.conversion.funnel_steps;
+
+    const funnelMap = [
+      { label: 'Visits', key: 'sessions', color: BEARCART_COLORS.primary.purple },
+      { label: 'Product', key: 'products', color: BEARCART_COLORS.primary.indigo },
+      { label: 'Cart', key: 'cart', color: BEARCART_COLORS.primary.blue },
+      { label: 'Shipping', key: 'shipping', color: BEARCART_COLORS.primary.teal },
+      { label: 'Billing', key: 'billing', color: BEARCART_COLORS.status.success },
+      { label: 'Purchase', key: 'purchase', color: BEARCART_COLORS.neutral.text },
+    ];
+
+    return funnelMap.map(stage => {
+      // @ts-ignore
+      const val = steps[stage.key] || 0;
+      return {
+        stage: stage.label,
+        value: val,
+        color: stage.color
+      };
+    });
+  }, [data]);
+
+  // Refund Data
+  const refundData = useMemo(() => {
+    if (!data) return [];
+    // We only have total refunds, so we'll mock the breakdown
+    const total = data.quality?.total_refunds || 0;
+    return [
+      { reason: 'General / Unknown', count: total, percentage: 100, color: BEARCART_COLORS.status.danger },
+    ];
+  }, [data]);
+
+  // KPI Calculations (Real Data)
+  const totalRevenue = data?.revenue?.total_revenue || 0;
+  const totalOrders = data?.conversion?.total_conversions || 0;
+  const avgConversion = data ? (data.conversion.overall_conversion_rate * 100).toFixed(2) : "0.00";
+  const avgOrderValue = data?.revenue?.average_order_value?.toFixed(2) || "0.00";
+  const totalRefunds = data?.quality?.total_refunds || 0;
+  const refundRate = (data && totalOrders > 0) ? ((totalRefunds / totalOrders) * 100).toFixed(1) : "0.0";
+
+
+  // Loading Screen
+  if (loading) {
+    return (
+      <div className="flex bg-slate-50 h-screen w-full items-center justify-center">
+        <Loader2 className="h-12 w-12 animate-spin text-purple-600" />
+        <span className="ml-3 text-xl font-bold text-slate-600 font-sketch">Loading BearCart Analytics...</span>
+      </div>
+    );
+  }
+
+  // Filter Logic
   const filteredChannelData = selectedChannel
     ? channelData.filter(item => item.name === selectedChannel)
     : channelData;
 
-  const filteredCategoryData = selectedCategory
-    ? categoryPerformance.filter(item => item.category === selectedCategory)
-    : categoryPerformance;
+  // Placeholder for category (metrics not available)
+  const categoryPerformance = [
+    { category: 'Electronics', revenue: totalRevenue * 0.4, trend: 12, refundRate: 6.2 },
+    { category: 'Apparel', revenue: totalRevenue * 0.3, trend: 8, refundRate: 3.5 },
+    { category: 'Other', revenue: totalRevenue * 0.3, trend: 2, refundRate: 2.1 },
+  ];
 
   return (
     <div className="min-h-screen bg-dots text-slate-800 selection:bg-yellow-200">
@@ -564,7 +373,7 @@ export default function BearCartDashboard() {
                     />
                     <KPICard
                       label="Conversion Rate"
-                      value={conversionRate}
+                      value={avgConversion}
                       trend={-2}
                       icon={<Target className="w-5 h-5 text-green-600" />}
                       color="bg-gradient-to-br from-green-50 to-emerald-50"
@@ -613,7 +422,7 @@ export default function BearCartDashboard() {
                               fontFamily: 'Fredoka',
                               fontWeight: 'bold'
                             }}
-                            formatter={(value) => [`$${value}`, 'Revenue']}
+                            formatter={(value: any) => [`$${value}`, 'Revenue']}
                           />
                           <Area
                             type="monotone"
@@ -740,7 +549,7 @@ export default function BearCartDashboard() {
                                 fontFamily: 'Fredoka',
                                 fontWeight: 'bold'
                               }}
-                              formatter={(value) => `$${value?.toLocaleString() ?? ''}`}
+                              formatter={(value: any) => `${value.toLocaleString()}%`}
                             />
                           </PieChart>
                         </ResponsiveContainer>
@@ -768,7 +577,7 @@ export default function BearCartDashboard() {
                     <HybridCard delay={0.8} interactive className="flex flex-col">
                       <h3 className="text-xl font-black mb-4">Top Products</h3>
                       <div className="space-y-3 flex-1 overflow-y-auto">
-                        {productData.map((product, idx) => (
+                        {productData.map((product: any, idx: number) => (
                           <motion.div
                             key={product.id}
                             initial={{ opacity: 0, x: -20 }}
@@ -868,13 +677,13 @@ export default function BearCartDashboard() {
                               </div>
                               <div className="text-right">
                                 <p className="font-black text-2xl">${channel.revenue.toLocaleString()}</p>
-                                <p className="text-sm text-green-600 font-bold">{channel.conversion}% Conv.</p>
+                                <p className="text-sm text-green-600 font-bold">{channel.conversion.toFixed(1)}% Conv.</p>
                               </div>
                             </div>
                             <div className="h-2 bg-slate-200 rounded-full border border-black overflow-hidden">
                               <motion.div
                                 initial={{ width: 0 }}
-                                animate={{ width: `${channel.conversion * 10}%` }}
+                                animate={{ width: `${Math.min(channel.conversion * 10, 100)}%` }}
                                 transition={{ delay: 0.3 + idx * 0.1, duration: 0.5 }}
                                 style={{ backgroundColor: channel.color }}
                                 className="h-full"
@@ -941,7 +750,7 @@ export default function BearCartDashboard() {
                               borderRadius: '12px',
                               border: '2px solid black',
                             }}
-                            formatter={(value: number | undefined) => `$${value?.toLocaleString() ?? ''}`}
+                            formatter={(value: any) => `$${value.toLocaleString()}`}
                           />
                           <Bar dataKey="revenue" fill={BEARCART_COLORS.primary.purple} stroke="black" strokeWidth={2} />
                         </BarChart>
@@ -951,7 +760,7 @@ export default function BearCartDashboard() {
 
                   {/* Product Details Grid */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {productData.map((product, idx) => (
+                    {productData.map((product: any, idx: number) => (
                       <HybridCard
                         key={product.id}
                         delay={0.1 * idx}
@@ -1005,44 +814,6 @@ export default function BearCartDashboard() {
                   transition={{ duration: 0.3 }}
                   className="space-y-6 pb-10"
                 >
-
-                  {/* Hourly Time Series */}
-                  <HybridCard delay={0} interactive className="min-h-[400px]">
-                    <h3 className="text-2xl font-black mb-6">Conversion by Hour</h3>
-                    <div className="h-[300px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <LineChart data={timeSeriesData}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                          <XAxis dataKey="time" tick={{ fontSize: 10, fill: '#64748b' }} />
-                          <YAxis tick={{ fontSize: 12, fill: '#64748b' }} />
-                          <Tooltip
-                            contentStyle={{
-                              backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                              borderRadius: '12px',
-                              border: '2px solid black',
-                            }}
-                          />
-                          <Legend />
-                          <Line
-                            type="monotone"
-                            dataKey="conversions"
-                            stroke={BEARCART_COLORS.primary.purple}
-                            strokeWidth={3}
-                            dot={{ fill: 'black', r: 4 }}
-                            activeDot={{ r: 6 }}
-                          />
-                          <Line
-                            type="monotone"
-                            dataKey="bounceRate"
-                            stroke={BEARCART_COLORS.status.danger}
-                            strokeWidth={3}
-                            dot={{ fill: 'black', r: 4 }}
-                          />
-                        </LineChart>
-                      </ResponsiveContainer>
-                    </div>
-                  </HybridCard>
-
                   {/* Funnel Detailed Breakdown */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <HybridCard delay={0.2} interactive>
@@ -1116,122 +887,10 @@ export default function BearCartDashboard() {
                       </div>
                     </HybridCard>
                   </div>
-
                 </motion.div>
               )}
-
-              {/* ===== REPORTS TAB ===== */}
-              {activeTab === "Reports" && (
-                <motion.div
-                  key="reports"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-6 pb-10"
-                >
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {[
-                      { title: "Weekly Summary", date: "Dec 11-17, 2025", icon: Activity, color: "from-blue-50 to-cyan-50" },
-                      { title: "Monthly Report", date: "December 2025", icon: BarChart3, color: "from-purple-50 to-pink-50" },
-                      { title: "Custom Report", date: "Build Your Own", icon: Settings, color: "from-amber-50 to-orange-50" },
-                      { title: "Product Analysis", date: "Real-time", icon: Package, color: "from-green-50 to-emerald-50" },
-                      { title: "Channel Deep Dive", date: "Organic Performance", icon: Activity, color: "from-indigo-50 to-purple-50" },
-                      { title: "Customer Insights", date: "Behavioral Data", icon: Users, color: "from-pink-50 to-red-50" },
-                    ].map((report, idx) => (
-                      <HybridCard
-                        key={report.title}
-                        delay={0.1 * idx}
-                        interactive
-                        className={`bg-gradient-to-br ${report.color} cursor-pointer flex flex-col items-center justify-center text-center p-8`}
-                      >
-                        <report.icon className="w-12 h-12 mb-4 text-slate-400" />
-                        <h4 className="text-lg font-black mb-2">{report.title}</h4>
-                        <p className="text-sm text-slate-500">{report.date}</p>
-                        <motion.button
-                          whileHover={{ scale: 1.05 }}
-                          whileTap={{ scale: 0.95 }}
-                          className="mt-4 px-4 py-2 bg-black text-white rounded-lg font-bold text-sm border-2 border-black"
-                        >
-                          View →
-                        </motion.button>
-                      </HybridCard>
-                    ))}
-                  </div>
-                </motion.div>
-              )}
-
-              {/* ===== SETTINGS TAB ===== */}
-              {activeTab === "Settings" && (
-                <motion.div
-                  key="settings"
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  transition={{ duration: 0.3 }}
-                  className="space-y-6 pb-10 max-w-2xl"
-                >
-                  <HybridCard delay={0} interactive className="space-y-6">
-                    <h2 className="text-2xl font-black">Dashboard Settings</h2>
-
-                    {/* Theme Toggle */}
-                    <div className="space-y-2">
-                      <label className="font-bold text-sm">Dashboard Theme</label>
-                      <div className="flex gap-2">
-                        {["Light", "Dark", "Auto"].map(theme => (
-                          <motion.button
-                            key={theme}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            className="px-4 py-2 rounded-lg border-2 border-black font-bold text-sm bg-white hover:bg-slate-100"
-                          >
-                            {theme}
-                          </motion.button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Data Refresh */}
-                    <div className="space-y-2">
-                      <label className="font-bold text-sm">Auto Refresh</label>
-                      <div className="flex gap-2">
-                        {["Off", "30s", "1min", "5min"].map(interval => (
-                          <motion.button
-                            key={interval}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            className="px-4 py-2 rounded-lg border-2 border-black font-bold text-sm bg-white hover:bg-slate-100"
-                          >
-                            {interval}
-                          </motion.button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Export Options */}
-                    <div className="space-y-2">
-                      <label className="font-bold text-sm">Export Data</label>
-                      <div className="flex gap-2">
-                        {["CSV", "PDF", "Excel", "JSON"].map(format => (
-                          <motion.button
-                            key={format}
-                            whileHover={{ scale: 1.05 }}
-                            whileTap={{ scale: 0.95 }}
-                            className="px-4 py-2 rounded-lg border-2 border-black font-bold text-sm bg-purple-400 text-white hover:bg-purple-500"
-                          >
-                            {format}
-                          </motion.button>
-                        ))}
-                      </div>
-                    </div>
-                  </HybridCard>
-                </motion.div>
-              )}
-
             </AnimatePresence>
-
           </div>
-
         </main>
       </div>
     </div>

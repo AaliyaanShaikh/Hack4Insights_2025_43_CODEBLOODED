@@ -1,0 +1,8 @@
+{
+    "features_added": [
+        "traffic_channel",
+        "customer_segment",
+        "max_product_risk",
+        "time_features"
+    ]
+}
