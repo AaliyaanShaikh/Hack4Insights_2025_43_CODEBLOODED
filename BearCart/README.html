@@ -130,7 +130,6 @@ BearCart/
 ├── frontend/
 │   └── app.py           # Streamlit dashboard application
 │
-├── generate_sample_data.py  # Script to generate sample data
 ├── requirements.txt      # Python dependencies
 └── README.html          # This file
         </pre>
@@ -141,10 +140,15 @@ BearCart/
         <pre><code># Install dependencies
 pip install -r requirements.txt</code></pre>
 
-        <h3>2. Generate Sample Data (Optional)</h3>
-        <p>If you don't have data files, generate sample data:</p>
-        <pre><code>python generate_sample_data.py</code></pre>
-        <p>This creates sample CSV files in <code>data/raw/</code> with realistic e-commerce data including missing values and duplicates for testing.</p>
+        <h3>2. Place Your Data Files</h3>
+        <p>Place your CSV files in <code>data/raw/</code> directory:</p>
+        <ul>
+            <li><code>sessions.csv</code></li>
+            <li><code>orders.csv</code></li>
+            <li><code>products.csv</code></li>
+            <li><code>refunds.csv</code></li>
+        </ul>
+        <p>See the <strong>Data Requirements</strong> section below for detailed schema information.</p>
 
         <h3>3. Clean Data</h3>
         <p>Run the data cleaning script to process raw data:</p>

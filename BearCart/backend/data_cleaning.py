@@ -1,6 +1,16 @@
 """
-Data cleaning module for BearCart e-commerce data.
-Handles duplicates, missing values, data type conversions, and validation.
+Data cleaning module for BearCart e-commerce data (Maven Fuzzy Factory schema).
+
+This module reads the raw CSVs from the Maven Fuzzy Factory dataset and:
+- Cleans each raw table (sessions, pageviews, orders, order_items, refunds, products)
+- Builds *normalized* analytical tables:
+  - `sessions.csv`   (session-level, with marketing channel & device)
+  - `orders.csv`     (order-level, with revenue and items)
+  - `products.csv`   (product lookup)
+  - `refunds.csv`    (order-level refunds)
+
+The normalized tables are written to `data/cleaned/` and are what the
+rest of the backend/frontend code consumes.
 """
 import pandas as pd
 from pathlib import Path
@@ -10,224 +20,302 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def clean_sessions(df: pd.DataFrame) -> pd.DataFrame:
+def _derive_channel(row: pd.Series) -> str:
     """
-    Clean sessions data.
-    
-    Args:
-        df: Raw sessions DataFrame
-        
-    Returns:
-        Cleaned sessions DataFrame
+    Derive a business-friendly marketing channel from Maven Fuzzy Factory fields.
+
+    Business logic (simplified and explainable for executives):
+    - Paid Search: utm_source in {gsearch, bing} (nonbrand/brand)
+    - Email: utm_source == 'email'
+    - Social: utm_source in {facebook, twitter}
+    - Direct: no utm_source and no external http_referer
+    - Referral: everything else with a non-null http_referer
     """
-    logger.info(f"Cleaning sessions data: {len(df)} records")
-    
-    # Remove duplicates
-    initial_count = len(df)
-    df = df.drop_duplicates(subset=['session_id'], keep='first')
-    duplicates_removed = initial_count - len(df)
-    if duplicates_removed > 0:
-        logger.info(f"Removed {duplicates_removed} duplicate sessions")
-    
-    # Handle missing values
-    # Fill missing channel with 'Unknown'
-    df['channel'] = df['channel'].fillna('Unknown')
-    
-    # Fill missing device with 'Unknown'
-    df['device'] = df['device'].fillna('Unknown')
-    
-    # Convert timestamp to datetime
-    df['timestamp'] = pd.to_datetime(df['timestamp'], errors='coerce')
-    
-    # Remove rows with invalid timestamps
-    df = df.dropna(subset=['timestamp'])
-    
-    # Ensure numeric columns are correct type
-    df['session_duration'] = pd.to_numeric(df['session_duration'], errors='coerce')
-    df['page_views'] = pd.to_numeric(df['page_views'], errors='coerce')
-    
-    # Fill missing numeric values with 0
-    df['session_duration'] = df['session_duration'].fillna(0)
-    df['page_views'] = df['page_views'].fillna(0)
-    
-    # Ensure positive values
-    df['session_duration'] = df['session_duration'].clip(lower=0)
-    df['page_views'] = df['page_views'].clip(lower=0)
-    
-    logger.info(f"Cleaned sessions data: {len(df)} records")
+    utm_source = str(row.get("utm_source") or "").lower()
+    utm_campaign = str(row.get("utm_campaign") or "").lower()
+    http_referer = str(row.get("http_referer") or "")
+
+    if utm_source in {"gsearch", "bing"}:
+        return "Paid Search"
+    if utm_source == "email":
+        return "Email"
+    if utm_source in {"facebook", "twitter"}:
+        return "Social"
+
+    # No UTM parameters – check referrer
+    if not utm_source:
+        if http_referer and "mavenfuzzyfactory" not in http_referer:
+            return "Referral"
+        return "Direct"
+
+    # Fallback
+    return utm_source.title() or "Other"
+
+
+def clean_website_sessions(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean `website_sessions` raw table."""
+    logger.info(f"Cleaning website_sessions: {len(df)} records")
+
+    # Drop duplicate sessions
+    initial = len(df)
+    df = df.drop_duplicates(subset=["website_session_id"], keep="first")
+    if len(df) != initial:
+        logger.info(f"Removed {initial - len(df)} duplicate website sessions")
+
+    # Parse timestamps
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+    df = df.dropna(subset=["created_at"])
+
+    # Ensure basic types
+    df["user_id"] = pd.to_numeric(df["user_id"], errors="coerce")
+    df = df.dropna(subset=["user_id"])
+    df["user_id"] = df["user_id"].astype(int)
+
+    # Device type
+    df["device_type"] = df["device_type"].fillna("unknown").str.title()
+
+    # Derive high-level marketing channel
+    df["channel"] = df.apply(_derive_channel, axis=1)
+
+    # Flag repeat sessions as boolean
+    if "is_repeat_session" in df.columns:
+        df["is_repeat_session"] = df["is_repeat_session"].astype(int)
+
+    logger.info(f"Cleaned website_sessions: {len(df)} records")
     return df
 
 
 def clean_orders(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Clean orders data.
-    
-    Args:
-        df: Raw orders DataFrame
-        
-    Returns:
-        Cleaned orders DataFrame
-    """
-    logger.info(f"Cleaning orders data: {len(df)} records")
-    
-    # Remove duplicates
-    initial_count = len(df)
-    df = df.drop_duplicates(subset=['order_id'], keep='first')
-    duplicates_removed = initial_count - len(df)
-    if duplicates_removed > 0:
-        logger.info(f"Removed {duplicates_removed} duplicate orders")
-    
-    # Convert order_date to datetime
-    df['order_date'] = pd.to_datetime(df['order_date'], errors='coerce')
-    df = df.dropna(subset=['order_date'])
-    
-    # Ensure numeric columns
-    df['total_amount'] = pd.to_numeric(df['total_amount'], errors='coerce')
-    df['items_count'] = pd.to_numeric(df['items_count'], errors='coerce')
-    
-    # Fill missing items_count with 1 (minimum)
-    df['items_count'] = df['items_count'].fillna(1)
-    
-    # Remove orders with invalid amounts
-    df = df.dropna(subset=['total_amount'])
-    
+    """Clean `orders` raw table."""
+    logger.info(f"Cleaning orders: {len(df)} records")
+
+    initial = len(df)
+    df = df.drop_duplicates(subset=["order_id"], keep="first")
+    if len(df) != initial:
+        logger.info(f"Removed {initial - len(df)} duplicate orders")
+
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+    df = df.dropna(subset=["created_at"])
+
+    # Coerce numeric fields
+    for col in ["price_usd", "cogs_usd"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    df["items_purchased"] = pd.to_numeric(df["items_purchased"], errors="coerce")
+
+    # Drop records without revenue
+    df = df.dropna(subset=["price_usd"])
+    df["items_purchased"] = df["items_purchased"].fillna(1).clip(lower=1)
+
     # Ensure positive values
-    df['total_amount'] = df['total_amount'].clip(lower=0)
-    df['items_count'] = df['items_count'].clip(lower=1)
-    
-    logger.info(f"Cleaned orders data: {len(df)} records")
+    df["price_usd"] = df["price_usd"].clip(lower=0)
+    df["cogs_usd"] = df["cogs_usd"].clip(lower=0)
+
+    logger.info(f"Cleaned orders: {len(df)} records")
     return df
 
 
 def clean_products(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Clean products data.
-    
-    Args:
-        df: Raw products DataFrame
-        
-    Returns:
-        Cleaned products DataFrame
-    """
-    logger.info(f"Cleaning products data: {len(df)} records")
-    
-    # Remove duplicates
-    initial_count = len(df)
-    df = df.drop_duplicates(subset=['product_id'], keep='first')
-    duplicates_removed = initial_count - len(df)
-    if duplicates_removed > 0:
-        logger.info(f"Removed {duplicates_removed} duplicate products")
-    
-    # Fill missing category with 'Uncategorized'
-    df['category'] = df['category'].fillna('Uncategorized')
-    
-    # Ensure numeric columns
-    df['price'] = pd.to_numeric(df['price'], errors='coerce')
-    df['stock_quantity'] = pd.to_numeric(df['stock_quantity'], errors='coerce')
-    
-    # Fill missing values
-    df['price'] = df['price'].fillna(0)
-    df['stock_quantity'] = df['stock_quantity'].fillna(0)
-    
-    # Ensure positive values
-    df['price'] = df['price'].clip(lower=0)
-    df['stock_quantity'] = df['stock_quantity'].clip(lower=0)
-    
-    logger.info(f"Cleaned products data: {len(df)} records")
+    """Clean `products` lookup table."""
+    logger.info(f"Cleaning products: {len(df)} records")
+
+    initial = len(df)
+    df = df.drop_duplicates(subset=["product_id"], keep="first")
+    if len(df) != initial:
+        logger.info(f"Removed {initial - len(df)} duplicate products")
+
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+
     return df
 
 
-def clean_refunds(df: pd.DataFrame, orders_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Clean refunds data and validate against orders.
-    
-    Args:
-        df: Raw refunds DataFrame
-        orders_df: Cleaned orders DataFrame for validation
-        
-    Returns:
-        Cleaned refunds DataFrame
-    """
-    logger.info(f"Cleaning refunds data: {len(df)} records")
-    
-    # Remove duplicates
-    initial_count = len(df)
-    df = df.drop_duplicates(subset=['refund_id'], keep='first')
-    duplicates_removed = initial_count - len(df)
-    if duplicates_removed > 0:
-        logger.info(f"Removed {duplicates_removed} duplicate refunds")
-    
-    # Convert refund_date to datetime
-    df['refund_date'] = pd.to_datetime(df['refund_date'], errors='coerce')
-    df = df.dropna(subset=['refund_date'])
-    
-    # Ensure numeric column
-    df['refund_amount'] = pd.to_numeric(df['refund_amount'], errors='coerce')
-    df = df.dropna(subset=['refund_amount'])
-    
-    # Validate refund amount <= order amount
-    # Merge with orders to get order amounts
-    order_amounts = orders_df[['order_id', 'total_amount']].set_index('order_id')
-    df = df.merge(order_amounts, left_on='order_id', right_index=True, how='left')
-    
-    # Filter out refunds where refund_amount > total_amount
-    invalid_refunds = df[df['refund_amount'] > df['total_amount']]
-    if len(invalid_refunds) > 0:
-        logger.warning(f"Removing {len(invalid_refunds)} refunds with amount > order amount")
-        df = df[df['refund_amount'] <= df['total_amount']]
-    
-    # Ensure positive values
-    df['refund_amount'] = df['refund_amount'].clip(lower=0)
-    
-    # Drop the temporary total_amount column
-    df = df.drop(columns=['total_amount'], errors='ignore')
-    
-    # Fill missing reason with 'Other'
-    df['reason'] = df['reason'].fillna('Other')
-    
-    logger.info(f"Cleaned refunds data: {len(df)} records")
+def clean_order_items(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean `order_items` line-item table."""
+    logger.info(f"Cleaning order_items: {len(df)} records")
+
+    initial = len(df)
+    df = df.drop_duplicates(subset=["order_item_id"], keep="first")
+    if len(df) != initial:
+        logger.info(f"Removed {initial - len(df)} duplicate order_items")
+
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+
+    for col in ["price_usd", "cogs_usd"]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).clip(lower=0)
+
     return df
 
 
-def clean_all_data(raw_data_dir: str = 'data/raw', cleaned_data_dir: str = 'data/cleaned'):
+def clean_order_item_refunds(df: pd.DataFrame) -> pd.DataFrame:
+    """Clean `order_item_refunds` table."""
+    logger.info(f"Cleaning order_item_refunds: {len(df)} records")
+
+    initial = len(df)
+    df = df.drop_duplicates(subset=["order_item_refund_id"], keep="first")
+    if len(df) != initial:
+        logger.info(f"Removed {initial - len(df)} duplicate order_item_refunds")
+
+    df["created_at"] = pd.to_datetime(df["created_at"], errors="coerce")
+    df = df.dropna(subset=["created_at"])
+
+    df["refund_amount_usd"] = pd.to_numeric(df["refund_amount_usd"], errors="coerce")
+    df = df.dropna(subset=["refund_amount_usd"])
+    df["refund_amount_usd"] = df["refund_amount_usd"].clip(lower=0)
+
+    return df
+
+
+def build_normalized_sessions(website_sessions: pd.DataFrame) -> pd.DataFrame:
     """
-    Clean all data files and save to cleaned directory.
-    
-    Args:
-        raw_data_dir: Directory containing raw data files (relative to project root)
-        cleaned_data_dir: Directory to save cleaned data files (relative to project root)
+    Build normalized `sessions` analytical table expected by the rest of the app.
+
+    Output columns:
+    - session_id
+    - user_id
+    - timestamp
+    - channel
+    - device
+    - is_repeat_session
     """
-    # Get project root (BearCart directory)
+    sessions = website_sessions.rename(
+        columns={
+            "website_session_id": "session_id",
+            "created_at": "timestamp",
+            "device_type": "device",
+        }
+    )[["session_id", "user_id", "timestamp", "channel", "device", "is_repeat_session"]]
+
+    return sessions
+
+
+def build_normalized_orders(orders: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build normalized `orders` analytical table.
+
+    Output columns:
+    - order_id
+    - session_id
+    - user_id
+    - order_date
+    - total_amount
+    - items_count
+    """
+    orders_norm = orders.rename(
+        columns={
+            "created_at": "order_date",
+            "price_usd": "total_amount",
+            "items_purchased": "items_count",
+            "website_session_id": "session_id",
+        }
+    )
+
+    # Some Maven exports store user_id as float – coerce to int where possible
+    orders_norm["user_id"] = pd.to_numeric(orders_norm["user_id"], errors="coerce")
+    orders_norm = orders_norm.dropna(subset=["user_id"])
+    orders_norm["user_id"] = orders_norm["user_id"].astype(int)
+
+    return orders_norm[
+        ["order_id", "session_id", "user_id", "order_date", "total_amount", "items_count"]
+    ]
+
+
+def build_normalized_refunds(
+    order_item_refunds: pd.DataFrame, orders: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Build normalized `refunds` analytical table at the order level.
+
+    We aggregate multiple item-level refunds per order into a single refund value.
+
+    Output columns:
+    - refund_id
+    - order_id
+    - refund_date
+    - refund_amount
+    - reason  (synthetic, always 'Refund')
+    """
+    # Sum refunds per order and use earliest refund date
+    agg = (
+        order_item_refunds.groupby("order_id", as_index=False)
+        .agg(
+            refund_amount=("refund_amount_usd", "sum"),
+            refund_date=("created_at", "min"),
+        )
+        .reset_index(drop=True)
+    )
+
+    # Validate against order revenue: refund <= order value
+    order_amounts = orders[["order_id", "price_usd"]].rename(
+        columns={"price_usd": "order_amount"}
+    )
+    agg = agg.merge(order_amounts, on="order_id", how="left")
+
+    invalid = agg[agg["refund_amount"] > agg["order_amount"]]
+    if len(invalid) > 0:
+        logger.warning(
+            f"Removing {len(invalid)} refunds where refund_amount > order_amount"
+        )
+        agg = agg[agg["refund_amount"] <= agg["order_amount"]]
+
+    agg["refund_id"] = agg["order_id"].astype(str)
+    agg["reason"] = "Refund"
+
+    return agg[["refund_id", "order_id", "refund_date", "refund_amount", "reason"]]
+
+
+def clean_all_data(raw_data_dir: str = "data/raw", cleaned_data_dir: str = "data/cleaned"):
+    """
+    End-to-end cleaning + normalization pipeline.
+
+    Reads Maven Fuzzy Factory raw tables from `data/raw/` and writes:
+    - cleaned/raw-like tables (optional)
+    - normalized analytical tables (sessions, orders, products, refunds) to `data/cleaned/`
+    """
     project_root = Path(__file__).parent.parent
     raw_path = project_root / raw_data_dir
     cleaned_path = project_root / cleaned_data_dir
     cleaned_path.mkdir(parents=True, exist_ok=True)
-    
-    logger.info("Starting data cleaning process...")
-    
-    # Clean sessions
-    sessions_df = pd.read_csv(raw_path / 'sessions.csv')
-    sessions_cleaned = clean_sessions(sessions_df)
-    sessions_cleaned.to_csv(cleaned_path / 'sessions.csv', index=False)
-    
-    # Clean orders
-    orders_df = pd.read_csv(raw_path / 'orders.csv')
-    orders_cleaned = clean_orders(orders_df)
-    orders_cleaned.to_csv(cleaned_path / 'orders.csv', index=False)
-    
-    # Clean products
-    products_df = pd.read_csv(raw_path / 'products.csv')
-    products_cleaned = clean_products(products_df)
-    products_cleaned.to_csv(cleaned_path / 'products.csv', index=False)
-    
-    # Clean refunds (needs orders for validation)
-    refunds_df = pd.read_csv(raw_path / 'refunds.csv')
-    refunds_cleaned = clean_refunds(refunds_df, orders_cleaned)
-    refunds_cleaned.to_csv(cleaned_path / 'refunds.csv', index=False)
-    
-    logger.info("Data cleaning completed successfully!")
+
+    logger.info("Starting data cleaning & normalization for Maven Fuzzy Factory...")
+
+    # --- Load raw tables ---
+    website_sessions_raw = pd.read_csv(raw_path / "website_sessions.csv")
+    website_pageviews_raw = pd.read_csv(raw_path / "website_pageviews.csv")
+    orders_raw = pd.read_csv(raw_path / "orders.csv")
+    order_items_raw = pd.read_csv(raw_path / "order_items.csv")
+    order_item_refunds_raw = pd.read_csv(raw_path / "order_item_refunds.csv")
+    products_raw = pd.read_csv(raw_path / "products.csv")
+
+    # --- Clean raw tables ---
+    website_sessions_clean = clean_website_sessions(website_sessions_raw)
+    orders_clean = clean_orders(orders_raw)
+    products_clean = clean_products(products_raw)
+    order_items_clean = clean_order_items(order_items_raw)
+    order_item_refunds_clean = clean_order_item_refunds(order_item_refunds_raw)
+
+    # Optional: save cleaned raw-style tables for debugging
+    website_sessions_clean.to_csv(cleaned_path / "website_sessions_clean.csv", index=False)
+    website_pageviews_raw.to_csv(cleaned_path / "website_pageviews_clean.csv", index=False)
+    orders_clean.to_csv(cleaned_path / "orders_raw_clean.csv", index=False)
+    order_items_clean.to_csv(cleaned_path / "order_items_clean.csv", index=False)
+    order_item_refunds_clean.to_csv(
+        cleaned_path / "order_item_refunds_clean.csv", index=False
+    )
+    products_clean.to_csv(cleaned_path / "products_clean.csv", index=False)
+
+    # --- Build normalized analytical tables expected by the dashboard ---
+    sessions_norm = build_normalized_sessions(website_sessions_clean)
+    orders_norm = build_normalized_orders(orders_clean)
+    refunds_norm = build_normalized_refunds(order_item_refunds_clean, orders_clean)
+
+    # Save normalized tables with the names expected by the rest of the codebase
+    sessions_norm.to_csv(cleaned_path / "sessions.csv", index=False)
+    orders_norm.to_csv(cleaned_path / "orders.csv", index=False)
+    products_clean.to_csv(cleaned_path / "products.csv", index=False)
+    refunds_norm.to_csv(cleaned_path / "refunds.csv", index=False)
+
+    logger.info("Data cleaning & normalization completed successfully.")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     clean_all_data()
 

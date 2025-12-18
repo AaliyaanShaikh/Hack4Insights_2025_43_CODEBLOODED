@@ -14,11 +14,6 @@ Place your CSV files in `data/raw/`:
 - `products.csv`
 - `refunds.csv`
 
-**Note:** If you don't have data files yet, you can generate sample data with:
-```bash
-python generate_sample_data.py
-```
-
 See `README.html` for detailed data schema requirements.
 
 ### Step 3: Clean Data
