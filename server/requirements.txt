@@ -1,0 +1,15 @@
+fastapi
+uvicorn[standard]
+pydantic
+requests
+python-dotenv
+psycopg2-binary
+torchcodec
+supabase
+pyjwt
+bcrypt
+boto3
+email-validator
+python-multipart
+requests
+
