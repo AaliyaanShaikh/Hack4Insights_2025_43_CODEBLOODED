@@ -71,6 +71,23 @@ class ApiService {
             throw error;
         }
     }
+
+    async sendChat(question: string): Promise<any> {
+        try {
+            const response = await fetch(`${this.baseURL}/api/chat`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ question }),
+            });
+            if (!response.ok) throw new Error('Chat failed');
+            return await response.json();
+        } catch (error) {
+            console.error("Chat error:", error);
+            throw error;
+        }
+    }
 }
 
 export const apiService = new ApiService();

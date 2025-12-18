@@ -13,7 +13,8 @@ import {
 import {
   LayoutGrid, TrendingUp, Users, Wallet, Settings, Bell, Search,
   Menu, X, Download, BarChart3, Activity, AlertCircle, ShoppingCart,
-  Package, DollarSign, Target, Loader2
+  Package, DollarSign, Target, Loader2,
+  Bot, ArrowRight, MessageSquare
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { BEARCART_COLORS, BEARCART_METRICS } from "./BearCartTheme";
@@ -86,6 +87,94 @@ const mapDeviceData = (data: DashboardData | null) => {
 
 
 
+const ChatInterface = ({ onClose }: { onClose: () => void }) => {
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', text: string }[]>([
+    { role: 'assistant', text: "Hello! I'm BearCart AI at your service. Ask me anything about your sales, refunds, or product performance!" }
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSend = async () => {
+    if (!input.trim()) return;
+    const userMsg = input;
+    setInput("");
+    setMessages(prev => [...prev, { role: 'user', text: userMsg }]);
+    setLoading(true);
+
+    try {
+      const data = await apiService.sendChat(userMsg);
+      setMessages(prev => [...prev, { role: 'assistant', text: data.answer }]);
+    } catch (err) {
+      setMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I'm having trouble connecting to the brain right now." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 20, scale: 0.95 }}
+      className="fixed bottom-24 right-6 w-96 h-[500px] bg-white border-4 border-black shadow-[8px_8px_0px_#000] rounded-2xl z-50 flex flex-col overflow-hidden"
+    >
+      <div className="bg-black text-white p-4 flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
+          <h3 className="font-bold font-sketch text-lg">BearCart AI</h3>
+        </div>
+        <button onClick={onClose} className="hover:text-red-400 font-bold">X</button>
+      </div>
+
+      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50" ref={scrollRef}>
+        {messages.map((msg, idx) => (
+          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={`max-w-[80%] p-3 rounded-xl font-medium text-sm border-2 ${msg.role === 'user'
+              ? 'bg-yellow-300 border-black text-black rounded-tr-none'
+              : 'bg-white border-slate-200 text-slate-800 rounded-tl-none'
+              }`}>
+              {msg.text}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div className="bg-white border-2 border-slate-200 p-3 rounded-xl rounded-tl-none flex gap-1">
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-75" />
+              <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-150" />
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="p-3 bg-white border-t-2 border-slate-200 flex gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+          placeholder="Ask about revenue trends..."
+          className="flex-1 border-2 border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-black transition-colors"
+        />
+        <button
+          onClick={handleSend}
+          disabled={loading}
+          className="p-2 bg-black text-white rounded-lg hover:bg-slate-800 transition-colors"
+        >
+          <ArrowRight className="w-4 h-4" />
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
 export default function BearCartDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [qualityReport, setQualityReport] = useState<any>(null);
@@ -95,6 +184,7 @@ export default function BearCartDashboard() {
   const [timeRange, setTimeRange] = useState("Month");
   const [selectedChannel, setSelectedChannel] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
 
   // Fetch Data
   useEffect(() => {
@@ -251,6 +341,7 @@ export default function BearCartDashboard() {
               { id: "Channels", icon: Activity },
               { id: "Products", icon: Package },
               { id: "Funnel", icon: ShoppingCart },
+              // { id: "Chat Bot", icon: Bot },
               { id: "Reports", icon: BarChart3 },
               { id: "Settings", icon: Settings },
             ].map((item) => (
@@ -1108,9 +1199,36 @@ export default function BearCartDashboard() {
                   </div>
                 </motion.div>
               )}
+
+
+
             </AnimatePresence>
           </div>
         </main>
+
+        {/* Floating Chat Button */}
+        <AnimatePresence>
+          {!chatOpen && (
+            <motion.button
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              onClick={() => setChatOpen(true)}
+              className="fixed bottom-6 right-6 p-4 bg-black text-white rounded-full shadow-[4px_4px_0px_#00000040] hover:scale-110 transition-transform active:scale-95 z-40 border-2 border-transparent hover:border-white"
+            >
+              <div className="relative">
+                <MessageSquare className="w-6 h-6" />
+                <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border-2 border-black" />
+              </div>
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        {/* Chat Interface Modal */}
+        <AnimatePresence>
+          {chatOpen && <ChatInterface onClose={() => setChatOpen(false)} />}
+        </AnimatePresence>
+
       </div >
     </div >
   );

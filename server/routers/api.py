@@ -2,6 +2,8 @@ from fastapi import APIRouter, HTTPException
 import os
 import json
 from server.services.metrics import BearCartMetrics
+from server.services.chat_agent import BearCartChatAgent
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/api", tags=["analytics"])
 
@@ -14,6 +16,12 @@ try:
 except Exception as e:
     print(f"Error loading metrics: {e}")
     metrics_service = None
+
+# Initialize Chat Agent
+chat_agent = BearCartChatAgent()
+
+class ChatRequest(BaseModel):
+    question: str
 
 @router.get("/dashboard")
 async def get_dashboard_data(range: str = "Month"):
@@ -37,3 +45,20 @@ async def get_quality_report():
         return {"error": "Report not found"}
     except Exception as e:
         return {"error": str(e)}
+
+@router.post("/chat")
+async def chat_with_data(request: ChatRequest):
+    """Chat with BearCart AI using dashboard context"""
+    if not metrics_service:
+        raise HTTPException(status_code=500, detail="Metrics service not initialized")
+        
+    try:
+        # Get current dashboard data context
+        # We use a default 'Month' range for context, or could make it dynamic
+        context_data = metrics_service.get_dashboard_data(time_range='Month')
+        
+        # Get answer from agent
+        response = chat_agent.ask(request.question, context_data)
+        return response
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

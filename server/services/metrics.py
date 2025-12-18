@@ -121,7 +121,10 @@ class BearCartMetrics:
 
     def product_metrics(self, df_items=None):
         """Product performance KPIs from items"""
-        df = df_items if df_items is not None else self.df_items
+        if df_items is not None:
+            df = df_items.copy()
+        else:
+            df = self.df_items.copy()
         
         if df.empty:
             return []
