@@ -14,7 +14,7 @@ import {
   LayoutGrid, TrendingUp, Users, Wallet, Settings, Bell, Search,
   Menu, X, Download, BarChart3, Activity, AlertCircle, ShoppingCart,
   Package, DollarSign, Target, Loader2,
-  Bot, ArrowRight, MessageSquare, FileText
+  Bot, ArrowRight, MessageSquare, FileText, Mic
 } from 'lucide-react';
 import { cn } from "@/src/lib/utils";
 import { BEARCART_COLORS, BEARCART_METRICS } from "./BearCartTheme";
@@ -88,11 +88,12 @@ const mapDeviceData = (data: DashboardData | null) => {
 
 
 const ChatInterface = ({ onClose }: { onClose: () => void }) => {
-  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', text: string }[]>([
+  const [messages, setMessages] = useState<{ role: 'user' | 'assistant', text: string, chart?: any }[]>([
     { role: 'assistant', text: "Hello! I'm BearCart AI at your service. Ask me anything about your sales, refunds, or product performance!" }
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -110,43 +111,113 @@ const ChatInterface = ({ onClose }: { onClose: () => void }) => {
 
     try {
       const data = await apiService.sendChat(userMsg);
-      setMessages(prev => [...prev, { role: 'assistant', text: data.answer }]);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        text: data.answer,
+        chart: data.chart
+      }]);
     } catch (err) {
-      setMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I'm having trouble connecting to the brain right now." }]);
+      setMessages(prev => [...prev, { role: 'assistant', text: "Sorry, I couldn't process that request." }]);
     } finally {
       setLoading(false);
     }
   };
 
+  const recognitionRef = React.useRef<any>(null);
+
+  const toggleListening = () => {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
+      const recognition = new SpeechRecognition();
+      recognition.lang = 'en-US';
+      recognition.continuous = false;
+      recognition.interimResults = false;
+
+      recognition.onstart = () => setIsListening(true);
+      recognition.onend = () => setIsListening(false);
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        setIsListening(false);
+      };
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        setInput(transcript);
+      };
+
+      recognitionRef.current = recognition;
+      recognition.start();
+    } else {
+      alert("Voice recognition is not supported in this browser. Try Chrome/Edge.");
+    }
+  };
+
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 20, scale: 0.95 }}
-      className="fixed bottom-24 right-6 w-96 h-[500px] bg-white border-4 border-black shadow-[8px_8px_0px_#000] rounded-2xl z-50 flex flex-col overflow-hidden"
+      initial={{ opacity: 0, scale: 0.9, y: 20 }}
+      animate={{ opacity: 1, scale: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.9, y: 20 }}
+      className="fixed bottom-24 right-6 w-96 h-[600px] bg-slate-50 border-4 border-black rounded-3xl shadow-[8px_8px_0px_#000] z-50 flex flex-col overflow-hidden"
     >
-      <div className="bg-black text-white p-4 flex justify-between items-center">
+      {/* Header */}
+      <div className="p-4 bg-black text-white flex justify-between items-center">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-          <h3 className="font-bold font-sketch text-lg">BearCart AI</h3>
+          <Bot className="w-6 h-6 text-green-400" />
+          <h3 className="font-bold text-lg font-sketch">BearCart Assistant</h3>
         </div>
-        <button onClick={onClose} className="hover:text-red-400 font-bold">X</button>
+        <button onClick={onClose} className="hover:text-red-400 transition-colors">
+          <X className="w-5 h-5" />
+        </button>
       </div>
 
-      <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-slate-50" ref={scrollRef}>
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] p-3 rounded-xl font-medium text-sm border-2 ${msg.role === 'user'
-              ? 'bg-yellow-300 border-black text-black rounded-tr-none'
-              : 'bg-white border-slate-200 text-slate-800 rounded-tl-none'
-              }`}>
-              {msg.text}
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-100" ref={scrollRef}>
+        {messages.map((msg, i) => (
+          <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+            <div className={cn(
+              "max-w-[85%] p-3 rounded-2xl text-sm font-medium border-2 border-black shadow-[2px_2px_0px_#000]",
+              msg.role === 'user' ? "bg-purple-400 text-white rounded-br-none" : "bg-white text-black rounded-bl-none"
+            )}>
+              <div dangerouslySetInnerHTML={{ __html: msg.text.replace(/\n/g, '<br/>').replace(/\*\*(.*?)\*\*/g, '<b>$1</b>') }} />
+
+              {/* Dynamic Chart Rendering */}
+              {msg.chart && (
+                <div className="mt-3 h-48 w-full bg-slate-50 rounded-lg border border-slate-200 p-2">
+                  <p className="text-xs font-bold mb-2 text-center text-slate-500">{msg.chart.title}</p>
+                  <ResponsiveContainer width="100%" height="100%">
+                    {msg.chart.type === 'bar' ? (
+                      <BarChart data={msg.chart.data?.map((d: any, idx: number) => ({ name: msg.chart.labels[idx], value: d }))}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip />
+                        <Bar dataKey="value" fill={BEARCART_COLORS.primary.purple} radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    ) : msg.chart.type === 'line' ? (
+                      <AreaChart data={msg.chart.data?.map((d: any, idx: number) => ({ name: msg.chart.labels[idx], value: d }))}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip />
+                        <Area type="monotone" dataKey="value" stroke={BEARCART_COLORS.primary.indigo} fill={BEARCART_COLORS.primary.indigo} fillOpacity={0.2} />
+                      </AreaChart>
+                    ) : (
+                      <div className="flex items-center justify-center h-full text-xs text-slate-400">Chart Type Not Supported</div>
+                    )}
+                  </ResponsiveContainer>
+                </div>
+              )}
             </div>
           </div>
         ))}
         {loading && (
           <div className="flex justify-start">
-            <div className="bg-white border-2 border-slate-200 p-3 rounded-xl rounded-tl-none flex gap-1">
+            <div className="bg-white p-3 rounded-2xl rounded-bl-none border-2 border-black flex gap-1">
               <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" />
               <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-75" />
               <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-150" />
@@ -155,12 +226,40 @@ const ChatInterface = ({ onClose }: { onClose: () => void }) => {
         )}
       </div>
 
-      <div className="p-3 bg-white border-t-2 border-slate-200 flex gap-2">
+      {/* Input Area */}
+      <div className="p-3 bg-white border-t-2 border-slate-200 flex gap-2 relative">
+        {/* Listening Overlay */}
+        <AnimatePresence>
+          {isListening && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-black/90 z-10 flex items-center justify-center gap-1"
+            >
+              {[1, 2, 3, 4, 5].map(i => (
+                <motion.div
+                  key={i}
+                  animate={{ height: [10, 25, 10] }}
+                  transition={{ repeat: Infinity, duration: 0.5, delay: i * 0.1 }}
+                  className="w-1.5 bg-green-400 rounded-full"
+                />
+              ))}
+              <span className="text-white text-xs font-mono ml-2">Listening...</span>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <button
+          onClick={toggleListening}
+          className={`p-2 rounded-lg border-2 border-black transition-all ${isListening ? 'bg-red-500 text-white' : 'bg-white text-black hover:bg-slate-100'}`}
+        >
+          <Mic className="w-4 h-4" />
+        </button>
+
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Ask about revenue trends..."
+          placeholder="Ask AI..."
           className="flex-1 border-2 border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-black transition-colors"
         />
         <button
@@ -206,6 +305,121 @@ const LoadingMessages = () => {
     </AnimatePresence>
   );
 };
+
+
+const Simulator = ({ currentRevenue, currentOrders }: { currentRevenue: number, currentOrders: number }) => {
+  const [adSpend, setAdSpend] = useState(1.0); // 1.0 = 100%
+  const [pricing, setPricing] = useState(1.0);
+  const [conversionBoost, setConversionBoost] = useState(1.0);
+
+  // Simple Projection Logic
+  const projectedRevenue = currentRevenue * pricing * (adSpend * 0.8 + 0.2) * conversionBoost;
+  const projectedOrders = currentOrders * (adSpend * 0.9 + 0.1) * (2 - pricing) * conversionBoost;
+
+  // Chart Data
+  const data = [
+    { name: 'Current', revenue: currentRevenue, orders: currentOrders },
+    { name: 'Projected', revenue: projectedRevenue, orders: projectedOrders }
+  ];
+
+  return (
+    <div className="space-y-6 animate-in fade-in zoom-in duration-300">
+      <HybridCard interactive className="bg-slate-900 text-white border-slate-700">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-purple-500 rounded-lg text-white"><Activity className="w-6 h-6" /></div>
+          <div>
+            <h2 className="text-2xl font-black">Business Simulator</h2>
+            <p className="text-slate-400 text-sm">Adjust parameters to forecast next month's performance.</p>
+          </div>
+        </div>
+      </HybridCard>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Controls */}
+        <HybridCard interactive className="lg:col-span-1 space-y-8">
+          <div>
+            <div className="flex justify-between mb-2">
+              <label className="font-bold">Ad Spend Multiplier</label>
+              <span className="font-mono bg-slate-100 px-2 rounded">{(adSpend * 100).toFixed(0)}%</span>
+            </div>
+            <input
+              type="range" min="0.5" max="3.0" step="0.1"
+              value={adSpend} onChange={(e) => setAdSpend(parseFloat(e.target.value))}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+            />
+            <p className="text-xs text-slate-500 mt-1">Impacts traffic & orders.</p>
+          </div>
+
+          <div>
+            <div className="flex justify-between mb-2">
+              <label className="font-bold">Pricing Strategy</label>
+              <span className="font-mono bg-slate-100 px-2 rounded">{(pricing * 100).toFixed(0)}%</span>
+            </div>
+            <input
+              type="range" min="0.8" max="1.5" step="0.05"
+              value={pricing} onChange={(e) => setPricing(parseFloat(e.target.value))}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+            />
+            <p className="text-xs text-slate-500 mt-1">Impacts revenue & conversion (inverse).</p>
+          </div>
+
+          <div>
+            <div className="flex justify-between mb-2">
+              <label className="font-bold">Conversion Optimization</label>
+              <span className="font-mono bg-slate-100 px-2 rounded">{(conversionBoost * 100).toFixed(0)}%</span>
+            </div>
+            <input
+              type="range" min="1.0" max="1.5" step="0.05"
+              value={conversionBoost} onChange={(e) => setConversionBoost(parseFloat(e.target.value))}
+              className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-green-600"
+            />
+            <p className="text-xs text-slate-500 mt-1">Impacts orders (UX improvements).</p>
+          </div>
+        </HybridCard>
+
+        {/* Results */}
+        <HybridCard interactive className="lg:col-span-2">
+          <div className="flex items-center justify-between mb-6">
+            <h3 className="text-xl font-bold">Revenue Projection</h3>
+            <div className={`text-2xl font-black ${projectedRevenue >= currentRevenue ? 'text-green-500' : 'text-red-500'}`}>
+              {projectedRevenue >= currentRevenue ? '+' : ''}
+              {((projectedRevenue - currentRevenue) / currentRevenue * 100).toFixed(1)}%
+            </div>
+          </div>
+
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="name" tick={{ fontSize: 14, fontWeight: 'bold' }} />
+                <YAxis tickFormatter={(val) => `$${val / 1000}k`} />
+                <Tooltip
+                  formatter={(val: any) => [`$${Number(val).toLocaleString()}`, 'Revenue']}
+                  cursor={{ fill: 'transparent' }}
+                />
+                <Bar dataKey="revenue" fill={BEARCART_COLORS.primary.purple} radius={[8, 8, 0, 0]} barSize={60}>
+                  {data.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={index === 0 ? '#94a3b8' : projectedRevenue >= currentRevenue ? '#22c55e' : '#ef4444'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4 text-center">
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <p className="text-sm text-slate-500">Projected Revenue</p>
+              <p className="text-xl font-black">${projectedRevenue.toLocaleString()}</p>
+            </div>
+            <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+              <p className="text-sm text-slate-500">Projected Orders</p>
+              <p className="text-xl font-black">{Math.floor(projectedOrders).toLocaleString()}</p>
+            </div>
+          </div>
+        </HybridCard>
+      </div>
+    </div>
+  );
+}
 
 export default function BearCartDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
@@ -395,7 +609,7 @@ export default function BearCartDashboard() {
               { id: "Channels", icon: Activity },
               { id: "Products", icon: Package },
               { id: "Funnel", icon: ShoppingCart },
-              // { id: "Chat Bot", icon: Bot },
+              { id: "Simulator", icon: TrendingUp },
               { id: "Reports", icon: BarChart3 },
               { id: "Settings", icon: Settings },
             ].map((item) => (
@@ -1212,6 +1426,20 @@ export default function BearCartDashboard() {
                       </div>
                     </HybridCard>
                   </div>
+                </motion.div>
+              )}
+
+
+              {/* ===== SIMULATOR TAB ===== */}
+              {activeTab === "Simulator" && (
+                <motion.div
+                  key="simulator"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -20 }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <Simulator currentRevenue={totalRevenue} currentOrders={totalOrders} />
                 </motion.div>
               )}
 
