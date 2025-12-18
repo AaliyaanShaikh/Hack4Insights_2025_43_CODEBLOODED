@@ -17,8 +17,38 @@ load_dotenv()
 
 from server.routers.api import router as api_router
 
+from contextlib import asynccontextmanager
+
+import requests
+
+async def health_check_loop():
+    # Wait for server startup
+    await asyncio.sleep(5)
+    while True:
+        try:
+            # Use localhost:8000 as defined in docker-compose/default
+            response = await asyncio.to_thread(requests.get, "http://127.0.0.1:8000/health")
+            logger.info(f"Health check status: {response.status_code}")
+        except Exception as e:
+            logger.warning(f"Health check failed: {e}")
+        
+        await asyncio.sleep(30)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
+    logger.info("Application starting up...")
+    task = asyncio.create_task(health_check_loop())
+    yield
+    # Shutdown
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        logger.info("Health check task cancelled")
+
 def create_app() -> FastAPI:
-    app = FastAPI(title="BearCart API", version="1.0.0")
+    app = FastAPI(title="BearCart API", version="1.0.0", lifespan=lifespan)
     
     app.include_router(api_router)
     
@@ -49,9 +79,9 @@ def create_app() -> FastAPI:
 
     return app
 
+app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    app = create_app()
     port = int(os.getenv("PORT", "8000"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

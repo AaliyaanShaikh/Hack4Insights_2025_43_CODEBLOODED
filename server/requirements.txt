@@ -15,3 +15,6 @@ requests
 langchain-google-genai
 google-genai
 reportlab
+pandas
+scikit-learn
+gunicorn
