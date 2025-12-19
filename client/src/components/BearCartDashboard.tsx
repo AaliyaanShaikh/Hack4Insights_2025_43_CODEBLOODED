@@ -819,7 +819,7 @@ export default function BearCartDashboard() {
                     >
                       <span className="text-xs font-bold text-slate-500 px-2">Download Report</span>
                       <a
-                        href={`http://localhost:8000/api/export/pdf?range=${timeRange}`}
+                        href={`https://bearcart.onrender.com/api/export/pdf?range=${timeRange}`}
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center gap-2 p-2 hover:bg-green-100 rounded-lg text-sm font-bold border border-transparent hover:border-black transition-all"
@@ -829,7 +829,7 @@ export default function BearCartDashboard() {
                         Current View ({timeRange})
                       </a>
                       <a
-                        href={`http://localhost:8000/api/export/pdf?range=Month`}
+                        href={`https://bearcart.onrender.com/api/export/pdf?range=Month`}
                         target="_blank"
                         rel="noreferrer"
                         className="flex items-center gap-2 p-2 hover:bg-yellow-100 rounded-lg text-sm font-bold border border-transparent hover:border-black transition-all"
@@ -1638,7 +1638,7 @@ export default function BearCartDashboard() {
                         </button>
 
                         <a
-                          href={`http://localhost:8000/api/export/pdf?range=${timeRange}`}
+                          href={`https://bearcart.onrender.com/api/export/pdf?range=${timeRange}`}
                           target="_blank"
                           rel="noreferrer"
                           className="px-6 py-3 bg-black text-white border-2 border-black rounded-xl shadow-[4px_4px_0px_#888] active:translate-y-1 active:shadow-none transition-all font-bold flex items-center gap-2 hover:bg-slate-800"

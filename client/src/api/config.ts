@@ -1,8 +1,8 @@
 // API Configuration
 export const API_CONFIG = {
     BASE_URL: typeof window !== 'undefined' && window.location.hostname === 'localhost'
-        ? 'http://localhost:8000'
-        : 'https://api.eviasearch.com',
+        ? 'https://bearcart.onrender.com'
+        : 'https://bearcart.onrender.com',
 
     ENDPOINTS: {
     },
